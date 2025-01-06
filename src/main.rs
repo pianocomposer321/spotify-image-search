@@ -57,11 +57,9 @@ async fn get_access_token(client_id: &str, client_secret: &str) -> Result<String
 async fn search(
     access_token: &str,
     track_name: &str,
-    album_name: &str,
     artist_names: &Vec<&str>,
 ) -> Result<serde_json::Value> {
     let track_name_encoded = urlencoding::encode(&track_name);
-    let album_name_encoded = urlencoding::encode(&album_name);
     let client = reqwest::Client::new();
     let response = client
         .get(format!(
@@ -76,56 +74,7 @@ async fn search(
         .await?;
     let content = response.text().await?;
 
-    Ok(dbg!(serde_json::from_str(&content))?)
-}
-
-fn filter_tracks(artist_names: &Vec<&str>, track_name: &str, track: &serde_json::Value) -> bool {
-    // if track["name"] != serde_json::Value::String(track_name.to_string()) {
-    //     dbg!(&track["name"]);
-    //     dbg!(track_name);
-    //     return false;
-    // }
-
-    // if track["album"]["name"] != serde_json::Value::String(album_name.to_string()) {
-    //     dbg!(&track["album"]["name"]);
-    //     dbg!(&album_name);
-    //     return false;
-    // }
-    // dbg!(&track["album"]["name"]);
-
-    let mut found_all = true;
-    for wanted_artist in artist_names.iter() {
-        let mut found_this = false;
-        for found_artist in track["artists"].as_array().unwrap() {
-            let langs = vec![String::from("en")];
-            let found_artist_name_sanitized = text_sanitizer::sanitizer::sanitize_string(
-                &found_artist["name"].as_str().unwrap().to_lowercase(),
-                &langs,
-                "",
-            );
-            let wanted_artist_name_sanitized = text_sanitizer::sanitizer::sanitize_string(
-                &wanted_artist.to_lowercase(),
-                &langs,
-                "",
-            );
-            dbg!(&track_name);
-            dbg!(&found_artist_name_sanitized);
-            dbg!(&wanted_artist_name_sanitized);
-            if found_artist_name_sanitized == wanted_artist_name_sanitized {
-                found_this = true;
-                break;
-            }
-        }
-        if !found_this {
-            found_all = false;
-            break;
-        }
-    }
-    if !found_all {
-        return false;
-    }
-
-    true
+    Ok(serde_json::from_str(&content)?)
 }
 
 fn calculate_average_artist_names_distance(a: &Vec<&str>, b: &Vec<&str>) -> usize {
@@ -160,7 +109,7 @@ async fn get_image_url_for_track(
     artist_names: &Vec<&str>,
     album_name: &str,
 ) -> Result<String> {
-    let res = search(&access_token, track_name, album_name, artist_names).await?;
+    let res = search(&access_token, track_name, artist_names).await?;
 
     let mut tracks = res["tracks"]["items"]
         .as_array()
@@ -190,11 +139,6 @@ async fn get_image_url_for_track(
 
         track_name_distance + artist_name_distance + album_name_disatnce
     });
-    dbg!(&tracks[0]);
-    // let filtered: Vec<_> = tracks
-    //     .iter()
-    //     .filter(|track| filter_tracks(&artist_names, track_name, *track))
-    //     .collect();
 
     let track = if tracks.len() <= 1 {
         &tracks[0]
@@ -212,7 +156,6 @@ async fn get_image_url_for_track(
         }
     };
 
-    dbg!(&track_name);
     let images = track["album"]["images"]
         .as_array()
         .ok_or(anyhow!("Invalid images array"))?;
