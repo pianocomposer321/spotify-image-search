@@ -1,16 +1,14 @@
 use anyhow::{anyhow, Result};
 use audiotags;
 use clap::Parser;
-use dotenvy::dotenv;
+use homedir;
 use edit_distance;
 use reqwest::{self, header};
 use serde_json;
-use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use text_sanitizer;
 use thiserror::Error;
 use tokio;
 use urlencoding;
@@ -193,14 +191,20 @@ async fn get_image_url_from_filename(
     return Ok(image_url);
 }
 
+fn log(msg: impl AsRef<str>) {
+    println!("SPOT_IMG_SEARCH: {}", msg.as_ref());
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv()?;
-
     let args = Args::parse();
 
-    let client_id = env::var("SPOTIFY_CLIENT_ID")?;
-    let client_secret = env::var("SPOTIFY_CLIENT_SECRET")?;
+    let config_home = homedir::my_home()?.unwrap().join(".config/spotify-image-search");
+    let client_id_file = config_home.join("client_id");
+    let client_secret_file = config_home.join("client_secret");
+
+    let client_id = fs::read_to_string(client_id_file)?.trim().to_string();
+    let client_secret = fs::read_to_string(client_secret_file)?.trim().to_string();
     let access_token = get_access_token(&client_id, &client_secret).await?;
 
     if args.file.is_dir() {
@@ -214,11 +218,14 @@ async fn main() -> Result<()> {
                     }
                 }
                 if !filepath.is_dir() {
+                    log("Searching for image...");
                     match get_image_url_from_filename(&access_token, &filepath).await {
                         Ok(image_url) => {
+                            log(format!("Found image: {}", image_url));
                             let image_data = reqwest::get(image_url).await?.bytes().await?;
 
                             let mut image_file = fs::File::create(&image_file_path)?;
+                            log(format!("Writing to file: {}", image_file_path.into_os_string().into_string().unwrap()));
                             image_file.write_all(&image_data)?;
                         }
                         Err(_) => {
@@ -234,13 +241,16 @@ async fn main() -> Result<()> {
         }
     } else {
         let image_file_path = &args.file.parent().unwrap().join(&args.output);
+        log("Searching for image...");
         let image_url = get_image_url_from_filename(&access_token, &args.file).await?;
+        log(format!("Found image: {}", image_url));
         let image_data = reqwest::get(image_url).await?.bytes().await?;
         let mut image_file = if args.force {
             fs::File::create(&image_file_path)?
         } else {
             fs::File::create_new(&image_file_path)?
         };
+        log(format!("Writing to file: {}", image_file_path.clone().into_os_string().into_string().unwrap()));
         image_file.write_all(&image_data)?;
     };
 
